@@ -61,6 +61,8 @@ class StreakRepository(private val dao: ContactDao) {
 
     val contacts: Flow<List<ContactEntity>> = dao.observeAll()
 
+    suspend fun contactsSnapshot(): List<ContactEntity> = dao.getAll()
+
     suspend fun upsert(contact: ContactEntity) = dao.upsert(contact)
     suspend fun delete(id: Long) = dao.delete(id)
 
