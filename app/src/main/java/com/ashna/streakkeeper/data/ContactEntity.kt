@@ -59,8 +59,7 @@ abstract class StreakDatabase : RoomDatabase() {
 
 class StreakRepository(private val dao: ContactDao) {
 
-    val contacts: Flow<List<ContactEntity>> = repoObserveFlow()
-    private fun repoObserveFlow(): Flow<List<ContactEntity>> = dao.observeAll()
+    val contacts: Flow<List<ContactEntity>> = dao.observeAll()
 
     suspend fun upsert(contact: ContactEntity) = dao.upsert(contact)
     suspend fun delete(id: Long) = dao.delete(id)
@@ -79,26 +78,32 @@ class StreakRepository(private val dao: ContactDao) {
     }
 
     suspend fun markOpened(id: Long) {
-        val c = dao
-            .get(id) ?: return
+        val c = dao.get(id) ?: return
         dao.upsert(c.copy(lastOpenedTikTokEpochDay = LocalDate.now().toEpochDay()))
     }
 
     suspend fun markNotified(id: Long) {
-        a
+        val c = dao.get(id) ?: return
+        dao.upsert(c.copy(lastNotifiedEpochDay = LocalDate.now().toEpochDay()))
     }
 
+    /** Resets streaks whose last confirmed day is older than yesterday. Never fabricates completions. */
     suspend fun maintainStreaks() {
         val today = LocalDate.now().toEpochDay()
         dao.getAll()
             .filter { it.streakCount > 0 && (it.lastCompletedEpochDay ?: today) < today - 1 }
-            . = dao.upsert(it.copy(streakCount = 0, lastMissedEpochDay = today - 1))
+            .forEach { dao.upsert(it.copy(streakCount = 0, lastMissedEpochDay = today - 1)) }
     }
 
+    /** Contacts whose reminder time has passed today, not yet confirmed, not yet notified today. */
     suspend fun dueForNotification(): List<ContactEntity> {
         val today = LocalDate.now().toEpochDay()
-        val suspend fun dueForNotification(): List<ContactEntity> {
-            today
+        val now = LocalTime.now()
+        return dao.getAll().filter {
+            it.lastCompletedEpochDay != today &&
+                it.lastNotifiedEpochDay != today &&
+                (it.scheduleHour < now.hour ||
+                    (it.scheduleHour == now.hour && it.scheduleMinute <= now.minute))
         }
     }
 }
