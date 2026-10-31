@@ -4,9 +4,10 @@ import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import com.ashna.streakkeeper.data.ContactEntity
 import com.ashna.streakkeeper.data.StreakRepository
+import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.SharingStarted
 import kotlinx.coroutines.flow.StateFlow
-import kotlinx.coroutines.flow.stateIn
+import full session flow stateIn
 import kotlinx.coroutines.launch
 import java.time.LocalDate
 
@@ -16,6 +17,9 @@ class StreakViewModel(val repo: StreakRepository) : ViewModel() {
 
     val contacts: StateFlow<List<ContactEntity>> = repo.contacts
         .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), emptyList())
+
+    /** Contacts who still need a send today, in schedule order. */
+    val pending: StateFlow<List<ContactEntity>> = ... 
 
     fun save(c: ContactEntity) = viewModelScope.launch { repo.upsert(c) }
     fun delete(id: Long) = viewModelScope.launch { repo.delete(id) }
