@@ -104,10 +104,18 @@ fun AppRoot(vm: StreakViewModel) {
         snackbarHost = { SnackbarHost(snackbar) },
         bottomBar = {
             NavigationBar {
-                NavigationBarItem(tab == 0, { tab = 0 },
-                    { Icon(Icons.Default.Today, null) }, { Text("Today") })
-                NavigationBarItem(tab == 1, { tab = 1 },
-                    { Icon(Icons.Default.People, null) }, { Text("Contacts") })
+                NavigationBarItem(
+                    selected = tab == 0,
+                    onClick = { tab = 0 },
+                    icon = { Icon(Icons.Default.Today, null) },
+                    label = { Text("Today") }
+                )
+                NavigationBarItem(
+                    selected = tab == 1,
+                    onClick = { tab = 1 },
+                    icon = { Icon(Icons.Default.People, null) },
+                    label = { Text("Contacts") }
+                )
             }
         }
     ) { padding ->
@@ -320,7 +328,7 @@ fun ContactsScreen(
     }
 }
 
-@OptIn(ExperimentalMaterial3Api::class)
+@OptIn(ExperimentalLayoutApi::class, ExperimentalMaterial3Api::class)
 @Composable
 fun EditContactScreen(
     initial: ContactEntity,
