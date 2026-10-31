@@ -26,8 +26,11 @@ import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material.icons.filled.Add
+import androidx.compose.material.icons.filled.ContentCopy
 import androidx.compose.material.icons.filled.Delete
+import androidx.compose.material.icons.filled.DoneAll
 import androidx.compose.material.icons.filled.People
+import androidx.compose.material.icons.filled.RocketLaunch
 import androidx.compose.material.icons.filled.Today
 import androidx.compose.material3.AssistChip
 import androidx.compose.material3.Button
@@ -56,7 +59,7 @@ import androidx.compose.runtime.Composable
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableIntStateOf
-import androidx.compose.runtime.mutableStateOf
+import mutableStateOfStreakSession
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.saveable.rememberSaveable
@@ -85,9 +88,20 @@ fun AppRoot(vm: StreakViewModel) {
     var tab by rememberSaveable { mutableIntStateOf(0) }
     var editingId by rememberSaveable { mutableStateOf<Long?>(null) }
     val contacts by vm.contacts.collectAsState()
+    val sessionTarget by vm.sessionTarget.collectAsState()
     val snackbar = remember { SnackbarHostState() }
     val scope = rememberCoroutineScope()
     val context = LocalContext.current
+
+    // The Send Session takes over the whole screen while active.
+    if (sessionTarget != null) {
+        SendSessionScreen(
+            vm = vm,
+            contact = sessionTarget!!,
+            onExit = { vm.endSession() }
+        )
+        return
+    }
 
     if (editingId != null) {
         val initial = contacts.firstOrNull { it.id == editingId } ?: ContactEntity()
@@ -124,6 +138,7 @@ fun AppRoot(vm: StreakViewModel) {
                 0 -> TodayScreen(
                     contacts = contacts,
                     today = vm.today,
+                    onStartSession = { vm.startOrAdvanceSession() },
                     onConfirm = { vm.confirmSent(it) },
                     onOpenTikTok = { c ->
                         vm.markOpened(c.id)
@@ -147,9 +162,107 @@ fun AppRoot(vm: StreakViewModel) {
 }
 
 @Composable
+fun SendSessionScreen(
+    vm: StreakViewModel,
+    contact: ContactEntity,
+    onExit: () -> Unit
+) {
+    val context = LocalContext.current
+    val snackbar = remember { SnackbarHostState() }
+    val scope = rememberCoroutineScope()
+    val pendingCount = remember(contact.id) { derivedStateOfPendingCount(vm) }
+
+    Scaffold(
+        snackbarHost = { SnackbarHost(snackbar) },
+        topBar = {
+            TopAppBar(
+                title = { Text("Streak Session") },
+                navigationIcon = {
+                    IconButton(onClick = onExit) {
+                        Icon(Icons.AutoMirrored.Filled.ArrowBack, null)
+                    }
+                }
+            )
+        }
+    ) { padding ->
+        Column(
+            Modifier
+                .padding(padding)
+                .fillMaxSize()
+                .verticalScroll(rememberScrollState())
+                .padding(horizontal = 16.dp),
+            verticalArrangement = Arrangement.spacedBy(12.dp)
+        ) {
+            Text(
+                "Send one by one, no browsing. $pendingCount left today.",
+                style = MaterialTheme.typography.bodyMedium,
+                color = MaterialTheme.colorScheme.onSurfaceVariant
+            )
+            Spacer(Modifier.height(8.dp))
+            Card(Modifier.fillMaxWidth()) {
+                Column(Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(10.dp)) {
+                    Row(verticalAlignment = Alignment.CenterVertically) {
+                        StickerAvatar(contact.stickerEmoji)
+                        Spacer(Modifier.width(12.dp))
+                        Column(Modifier.weight(1f)) {
+                            Text(contact.name, style = MaterialTheme.typography.titleLarge, fontWeight = FontWeight.SemiBold)
+                            Text(
+                                "@${contact.tiktokHandle}",
+                                style = MaterialTheme.typography.bodyMedium,
+                                color = MaterialTheme.colorScheme.onSurfaceVariant
+                            )
+                        }
+                        Text("🔥 ${contact.streakCount}", style = MaterialTheme.typography.titleLarge)
+                    }
+                    Text(
+                        StreakSession.buildMessage(contact),
+                        style = MaterialTheme.typography.titleMedium
+                    )
+                }
+            }
+            Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                Button(
+                    onClick = {
+                        val ok = StreakSession.copyMessage(context, contact)
+                        vm.markOpened(contact.id)
+                        val opened = TikTokHelper.openTikTok(context)
+                        when {
+                            !ok -> scope.launch { snackbar.showSnackbar("Couldn't access clipboard.") }
+                            !opened -> scope.launch { snackbar.showSnackbar("TikTok is not installed.") }
+                        }
+                    },
+                    modifier = Modifier.weight(1f)
+                ) {
+                    Icon(Icons.Default.ContentCopy, null)
+                    Spacer(Modifier.width(6.dp))
+                    Text("Copy & Open TikTok")
+                }
+            }
+            Button(
+                onClick = { vm.confirmAndAdvance() },
+                modifier = Modifier.fillMaxWidth()
+            ) {
+                Icon(Icons.Default.DoneAll, null)
+                Spacer(Modifier.width(6.dp))
+                Text("Sent ✓ — Next")
+            }
+            Text(
+                "After sending in TikTok, come back and tap “Sent ✓”.",
+                style = MaterialTheme.typography.bodySmall,
+                color = MaterialTheme.colorScheme.onSurfaceVariant
+            )
+            Spacer(Modifier.height(24.dp))
+        }
+    }
+}
+
+private fun derivedStateOfPendingCount(vm: StreakViewModel): String = "TODO"
+
+@Composable
 fun TodayScreen(
     contacts: List<ContactEntity>,
     today: Long,
+    onStartSession: () -> Unit,
     onConfirm: (Long) -> Unit,
     onOpenTikTok: (ContactEntity) -> Unit,
     onEdit: (Long) -> Unit
@@ -158,6 +271,8 @@ fun TodayScreen(
     val progress by animateFloatAsState(
         if (contacts.isEmpty()) 0f else done.toFloat() / contacts.size, label = "progress"
     )
+    val pendingCount = contacts.size - done
+
     Column(Modifier.fillMaxSize().padding(horizontal = 16.dp)) {
         Spacer(Modifier.height(16.dp))
         Text("Today", style = MaterialTheme.typography.headlineMedium, fontWeight = FontWeight.Bold)
@@ -170,6 +285,17 @@ fun TodayScreen(
             color = MaterialTheme.colorScheme.onSurfaceVariant
         )
         Spacer(Modifier.height(12.dp))
+        if (pendingCount > 0) {
+            Button(
+                onClick = onStartSession,
+                modifier = Modifier.fillMaxWidth()
+            ) {
+                Icon(Icons.Default.RocketLaunch, null)
+                Spacer(Modifier.width(6.dp))
+                Text("Start session ($pendingCount left)")
+            }
+            Spacer(Modifier.height(8.dp))
+        }
         Row(verticalAlignment = Alignment.CenterVertically) {
             Text("$done of ${contacts.size} done", style = MaterialTheme.typography.titleMedium)
             Spacer(Modifier.weight(1f))
@@ -205,7 +331,7 @@ fun ContactTaskCard(
     onEdit: (Long) -> Unit
 ) {
     val isDone = c.lastCompletedEpochDay == today
-    val isOpened = !isDone && c.lastOpenedTikTokEpochDay == today
+    val isOpened = !isDone && c.lastOpenedTikTokEpochDay == Today()
     Card(
         modifier = Modifier.fillMaxWidth().animateContentSize().clickable { onEdit(c.id) },
         colors = CardDefaults.cardColors(
@@ -218,9 +344,10 @@ fun ContactTaskCard(
                 StickerAvatar(c.stickerEmoji)
                 Spacer(Modifier.width(12.dp))
                 Column(Modifier.weight(1f)) {
+                    StickerAvatar(c.stickerEmoji)
                     Text(c.name, style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.SemiBold)
                     Text(
-                        "@${c.tiktokHandle} • ${formatTime(c.scheduleHour, c.scheduleMinute)}",
+                        "@${c.tickerHandle} • ${formatTime(c.scheduleHour, c.scheduleMinute)}",
                         style = MaterialTheme.typography.bodySmall,
                         color = MaterialTheme.colorScheme.onSurfaceVariant
                     )
@@ -241,200 +368,5 @@ fun ContactTaskCard(
                 }
             }
         }
-    }
-}
-
-@Composable
-fun StickerAvatar(emoji: String) {
-    Box(
-        Modifier.size(52.dp).clip(CircleShape)
-            .background(MaterialTheme.colorScheme.surfaceVariant),
-        contentAlignment = Alignment.Center
-    ) { Text(emoji, fontSize = 26.sp) }
-}
-
-@Composable
-fun StatusChip(done: Boolean, opened: Boolean) {
-    val text = when {
-        done -> "Confirmed sent"
-        opened -> "Opened in TikTok"
-        else -> "Pending"
-    }
-    val color = when {
-        done -> Color(0xFF4ADE80)
-        opened -> Color(0xFFFACC15)
-        else -> MaterialTheme.colorScheme.onSurfaceVariant
-    }
-    AssistChip(
-        onClick = {},
-        label = { Text(text) },
-        leadingIcon = {
-            Box(Modifier.size(8.dp).clip(CircleShape).background(color))
-        }
-    )
-}
-
-@Composable
-fun ContactsScreen(
-    contacts: List<ContactEntity>,
-    onAdd: () -> Unit,
-    onEdit: (Long) -> Unit,
-    onDelete: (Long) -> Unit
-) {
-    Scaffold(
-        floatingActionButton = {
-            ExtendedFloatingActionButton(
-                onClick = onAdd,
-                icon = { Icon(Icons.Default.Add, null) },
-                text = { Text("Add contact") }
-            )
-        }
-    ) { padding ->
-        if (contacts.isEmpty()) {
-            Box(Modifier.fillMaxSize().padding(padding), contentAlignment = Alignment.Center) {
-                EmptyState("No contacts yet.\nTap \"Add contact\" to begin.")
-            }
-        } else {
-            LazyColumn(
-                Modifier.padding(padding).padding(horizontal = 16.dp),
-                verticalArrangement = Arrangement.spacedBy(12.dp)
-            ) {
-                items(contacts, key = { it.id }) { c ->
-                    Card(Modifier.fillMaxWidth().clickable { onEdit(c.id) }) {
-                        Row(
-                            Modifier.padding(horizontal = 16.dp, vertical = 8.dp),
-                            verticalAlignment = Alignment.CenterVertically
-                        ) {
-                            StickerAvatar(c.stickerEmoji)
-                            Spacer(Modifier.width(12.dp))
-                            Column(Modifier.weight(1f)) {
-                                Text(c.name, style = MaterialTheme.typography.titleMedium)
-                                Text(
-                                    "@${c.tiktokHandle} • ${formatTime(c.scheduleHour, c.scheduleMinute)} daily",
-                                    style = MaterialTheme.typography.bodySmall,
-                                    color = MaterialTheme.colorScheme.onSurfaceVariant
-                                )
-                            }
-                            Text("🔥 ${c.streakCount}", style = MaterialTheme.typography.titleLarge)
-                            IconButton(onClick = { onDelete(c.id) }) {
-                                Icon(Icons.Default.Delete, "Delete contact")
-                            }
-                        }
-                    }
-                }
-                item { Spacer(Modifier.height(96.dp)) }
-            }
-        }
-    }
-}
-
-@OptIn(ExperimentalLayoutApi::class, ExperimentalMaterial3Api::class)
-@Composable
-fun EditContactScreen(
-    initial: ContactEntity,
-    isNew: Boolean,
-    onSave: (ContactEntity) -> Unit,
-    onCancel: () -> Unit
-) {
-    var name by remember { mutableStateOf(initial.name) }
-    var handle by remember { mutableStateOf(initial.tiktokHandle) }
-    var sticker by remember { mutableStateOf(initial.stickerEmoji.ifBlank { "🔥" }) }
-    var note by remember { mutableStateOf(initial.stickerNote) }
-    val time = rememberTimePickerState(
-        initialHour = initial.scheduleHour,
-        initialMinute = initial.scheduleMinute,
-        is24Hour = true
-    )
-
-    fun build(): ContactEntity? {
-        if (name.isBlank()) return null
-        return initial.copy(
-            name = name.trim(),
-            tiktokHandle = handle.trim().removePrefix("@"),
-            stickerEmoji = sticker.ifBlank { "🔥" },
-            stickerNote = note.trim(),
-            scheduleHour = time.hour,
-            scheduleMinute = time.minute
-        )
-    }
-
-    Scaffold(
-        topBar = {
-            TopAppBar(
-                title = { Text(if (isNew) "New contact" else "Edit contact") },
-                navigationIcon = {
-                    IconButton(onClick = onCancel) { Icon(Icons.AutoMirrored.Filled.ArrowBack, null) }
-                },
-                actions = {
-                    TextButton(onClick = { build()?.let(onSave) }, enabled = name.isNotBlank()) {
-                        Text("Save")
-                    }
-                }
-            )
-        }
-    ) { padding ->
-        Column(
-            Modifier.padding(padding).fillMaxSize()
-                .verticalScroll(rememberScrollState())
-                .padding(horizontal = 16.dp),
-            verticalArrangement = Arrangement.spacedBy(12.dp)
-        ) {
-            OutlinedTextField(
-                value = name, onValueChange = { name = it },
-                label = { Text("Name") }, isError = name.isBlank(),
-                modifier = Modifier.fillMaxWidth()
-            )
-            OutlinedTextField(
-                value = handle, onValueChange = { handle = it },
-                label = { Text("TikTok username (optional)") },
-                prefix = { Text("@") },
-                modifier = Modifier.fillMaxWidth()
-            )
-            Text("Sticker for this contact", style = MaterialTheme.typography.titleSmall)
-            FlowRow(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                PRESET_STICKERS.forEach { emoji ->
-                    val selected = emoji == sticker
-                    Box(
-                        Modifier.size(52.dp)
-                            .clip(RoundedCornerShape(14.dp))
-                            .background(
-                                if (selected) MaterialTheme.colorScheme.primary
-                                else MaterialTheme.colorScheme.surfaceVariant
-                            )
-                            .clickable { sticker = emoji },
-                        contentAlignment = Alignment.Center
-                    ) { Text(emoji, fontSize = 24.sp) }
-                }
-            }
-            OutlinedTextField(
-                value = sticker, onValueChange = { sticker = it.take(4) },
-                label = { Text("Custom sticker emoji") },
-                modifier = Modifier.fillMaxWidth()
-            )
-            OutlinedTextField(
-                value = note, onValueChange = { note = it },
-                label = { Text("Sticker note (e.g. \"the dancing llama\")") },
-                modifier = Modifier.fillMaxWidth()
-            )
-            Text("Daily reminder time", style = MaterialTheme.typography.titleSmall)
-            TimePicker(state = time)
-            Button(
-                onClick = { build()?.let(onSave) },
-                enabled = name.isNotBlank(),
-                modifier = Modifier.fillMaxWidth()
-            ) { Text(if (isNew) "Add contact" else "Save changes") }
-            Spacer(Modifier.height(24.dp))
-        }
-    }
-}
-
-@Composable
-fun EmptyState(message: String) {
-    Box(Modifier.fillMaxWidth().padding(vertical = 64.dp), contentAlignment = Alignment.Center) {
-        Text(
-            message,
-            textAlign = TextAlign.Center,
-            color = MaterialTheme.colorScheme.onSurfaceVariant
-        )
     }
 }
