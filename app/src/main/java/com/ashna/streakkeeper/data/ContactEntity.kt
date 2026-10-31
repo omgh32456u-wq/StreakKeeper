@@ -18,6 +18,7 @@ data class ContactEntity(
     val tiktokHandle: String = "",
     val stickerEmoji: String = "🔥",
     val stickerNote: String = "",
+    val messageTemplate: String = "",
     val scheduleHour: Int = 12,
     val scheduleMinute: Int = 0,
     val streakCount: Int = 0,
@@ -51,7 +52,7 @@ interface ContactDao {
     suspend fun delete(id: Long)
 }
 
-@Database(entities = [ContactEntity::class], version = 1, exportSchema = false)
+@Database(entities = [ContactEntity::class], version = 2, exportSchema = false)
 abstract class StreakDatabase : RoomDatabase() {
     abstract fun contactDao(): ContactDao
 }
@@ -59,6 +60,8 @@ abstract class StreakDatabase : RoomDatabase() {
 class StreakRepository(private val dao: ContactDao) {
 
     val contacts: Flow<List<ContactEntity>> = dao.observeAll()
+
+    suspend fun contactsSnapshot(): List<ContactEntity> = dao.getAll()
 
     suspend fun upsert(contact: ContactEntity) = dao.upsert(contact)
     suspend fun delete(id: Long) = dao.delete(id)
